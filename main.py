@@ -26,21 +26,21 @@ import simulator
 import analysis as AN
 import plotting as PL
 
-OUT = os.path.join(HERE, "out")
-
-
 def main(config_path=None):
     t0 = time.time()
-    os.makedirs(OUT, exist_ok=True)
 
     # ---------------- 1. read data ----------------
     cfg = data_loader.load_config(config_path) if config_path else data_loader.load_config()
     mc = data_loader.load_microcircuit()
     nps = data_loader.load_neuron_params()
+    exp = cfg["name"]
     syn = cfg["synapse"]
     spec = data_loader.build_spec(nps, cfg["model"],
                               tau_syn_ex=syn.get("tau_syn_ex"),
                               tau_syn_in=syn.get("tau_syn_in"))
+    print(f"[spec] -- {exp} --")
+    outpath = os.path.join(os.getcwd(), "out", exp)
+    os.makedirs(outpath, exist_ok=True)
     print(f"[data] model={cfg['model']} abeta_ratio={cfg['abeta_ratio']} "
           f"N_scale={cfg['N_scale']} pops={len(mc['pop_names'])}")
 
@@ -86,15 +86,15 @@ def main(config_path=None):
 
     # ---------------- 5. plot ----------------
     figs = {
-        "raster_total":   PL.plot_raster_total(result, os.path.join(OUT, "raster_total.png")),
-        "raster_subpop":  PL.plot_raster_subpop(result, mp, os.path.join(OUT, "raster_subpop.png")),
-        "lfp":            PL.plot_lfp(lfp, warm, os.path.join(OUT, "lfp.png")),
-        "psd":            PL.plot_psd(f, p, bands, os.path.join(OUT, "psd.png"), fmax=wv["fmax"]),
-        "wavelet":        PL.plot_wavelet(wf, wt, wp, warm, os.path.join(OUT, "wavelet.png")),
+        "raster_total":   PL.plot_raster_total(result, os.path.join(outpath, "raster_total.png")),
+        "raster_subpop":  PL.plot_raster_subpop(result, mp, os.path.join(outpath, "raster_subpop.png")),
+        "lfp":            PL.plot_lfp(lfp, warm, os.path.join(outpath, "lfp.png")),
+        "psd":            PL.plot_psd(f, p, bands, os.path.join(outpath, "psd.png"), fmax=wv["fmax"]),
+        "wavelet":        PL.plot_wavelet(wf, wt, wp, warm, os.path.join(outpath, "wavelet.png")),
         "plv_matrix":     PL.plot_plv_matrix(labels, plv_M, nm[0], nm[1],
-                                             os.path.join(OUT, "plv_theta_beta_matrix.png")),
+                                             os.path.join(outpath, "plv_theta_beta_matrix.png")),
         "plv_comodulogram": PL.plot_comodulogram(th_f, be_f, plv_C, nm[0], nm[1],
-                                                 os.path.join(OUT, "plv_theta_beta_comodulogram.png")),
+                                                 os.path.join(outpath, "plv_theta_beta_comodulogram.png")),
     }
 
     metrics = {
@@ -104,10 +104,10 @@ def main(config_path=None):
         "plv_nm": nm, "plv_diag_mean": float(np.mean(np.diag(plv_M))),
         "figures": {k: os.path.relpath(v, HERE) for k, v in figs.items()},
     }
-    with open(os.path.join(OUT, "metrics.json"), "w") as fp:
+    with open(os.path.join(outpath, "metrics.json"), "w") as fp:
         json.dump(metrics, fp, indent=2)
 
-    print(f"[done] {time.time()-t0:.0f}s -> {len(figs)} figures + metrics.json in {os.path.relpath(OUT, HERE)}/")
+    print(f"[done] {time.time()-t0:.0f}s -> {len(figs)} figures + metrics.json in {os.path.relpath(outpath, HERE)}/")
     return metrics
 
 

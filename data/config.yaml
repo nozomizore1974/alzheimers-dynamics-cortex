@@ -1,10 +1,11 @@
 # Run configuration for one cortical-column simulation + analysis.
 # Edit and re-run main.py.  Inline comments give the unit of each parameter.
 
+name: "baseline"
 model: aeif              # categorical: 'iaf' or 'aeif'
-abeta_ratio: 0.45        # dimensionless fraction in [0,1] (0 = healthy)
-N_scale: 0.1             # dimensionless fraction (population downscaling; 1.0 = full scale)
-weight_ref_scale: 0.1    # dimensionless fraction (N_scale at which weights were tuned)
+abeta_ratio: 0.       # dimensionless fraction in [0,1] (0 = healthy)
+N_scale: 1.0             # dimensionless fraction (population downscaling; 1.0 = full scale)
+weight_ref_scale: 1.0    # dimensionless fraction (N_scale at which weights were tuned)
 
 simulation:
   t_sim: 2000.0          # ms
