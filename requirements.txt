@@ -1,0 +1,7 @@
+# Python dependencies (standalone; no dependency on any other project)
+numpy>=1.21
+scipy>=1.7
+matplotlib>=3.4
+pyyaml>=5.1
+# NEST simulator 3.x is required but is NOT a pip package on all platforms.
+# Install separately, e.g.:  conda install -c conda-forge nest-simulator=3.8

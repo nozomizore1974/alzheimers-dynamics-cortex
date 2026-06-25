@@ -1,0 +1,20 @@
+# Healthy + amyloid-beta (Abeta) neuron parameter sets.
+# Units (NEST): E_L, V_reset, V_th, V_peak, Delta_T = mV ;  C_m = pF ;  g_L = nS ;
+#   tau_m, tau_w, tau_syn_ex, tau_syn_in, t_ref = ms ;  a = nS ;  b = pA ;  I_e = pA.
+# Each model has four sets: excitatory/inhibitory x healthy/Abeta.
+
+iaf:
+  model_E: iaf_psc_exp
+  model_I: iaf_psc_exp
+  E_healthy: {E_L: -70.0, V_reset: -70.0, V_th: -55.0, C_m: 250.0, tau_m: 10.0,  t_ref: 2.0, tau_syn_ex: 2.0, tau_syn_in: 2.0, I_e: 0.0}   # healthy pyramidal
+  E_abeta:   {E_L: -70.0, V_reset: -68.5, V_th: -56.5, C_m: 250.0, tau_m: 11.25, t_ref: 2.0, tau_syn_ex: 2.0, tau_syn_in: 2.0, I_e: 0.0}   # Abeta E: V_th down, V_reset up, tau_m up
+  I_healthy: {E_L: -70.0, V_reset: -70.0, V_th: -55.0, C_m: 250.0, tau_m: 10.0,  t_ref: 2.0, tau_syn_ex: 2.0, tau_syn_in: 2.0, I_e: 0.0}   # healthy interneuron (FS-like)
+  I_abeta:   {E_L: -70.0, V_reset: -70.0, V_th: -52.5, C_m: 250.0, tau_m: 10.0,  t_ref: 3.0, tau_syn_ex: 2.0, tau_syn_in: 2.0, I_e: 0.0}   # Abeta I: V_th up, longer refractory
+
+aeif:
+  model_E: aeif_psc_exp
+  model_I: aeif_psc_exp
+  E_healthy: {C_m: 281.0, g_L: 30.0, E_L: -70.6, V_th: -50.4, Delta_T: 2.0, V_peak: -40.4, V_reset: -70.6, tau_w: 144.0, a: 4.0, b: 80.5, t_ref: 2.0, tau_syn_ex: 2.0, tau_syn_in: 2.0, I_e: 0.0}   # healthy RS pyramidal
+  E_abeta:   {C_m: 281.0, g_L: 26.7, E_L: -70.6, V_th: -52.5, Delta_T: 2.0, V_peak: -40.4, V_reset: -60.0, tau_w: 144.0, a: 1.5, b: 30.0, t_ref: 2.0, tau_syn_ex: 2.0, tau_syn_in: 2.0, I_e: 0.0}   # Abeta E: g_L/a/b down (less adaptation), V_th down, V_reset up
+  I_healthy: {C_m: 281.0, g_L: 30.0, E_L: -70.6, V_th: -50.4, Delta_T: 2.0, V_peak: -40.4, V_reset: -70.6, tau_w: 144.0, a: 2.0, b: 0.0,  t_ref: 2.0, tau_syn_ex: 2.0, tau_syn_in: 2.0, I_e: 0.0}   # healthy FS interneuron (b=0)
+  I_abeta:   {C_m: 281.0, g_L: 30.0, E_L: -70.6, V_th: -47.0, Delta_T: 2.0, V_peak: -40.4, V_reset: -70.6, tau_w: 144.0, a: 2.0, b: 0.0,  t_ref: 2.0, tau_syn_ex: 2.0, tau_syn_in: 2.0, I_e: 0.0}   # Abeta I: V_th up (reduced output)
