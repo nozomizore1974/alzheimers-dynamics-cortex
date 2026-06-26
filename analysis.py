@@ -99,13 +99,22 @@ def zscore(sig):
 # --------------------------------------------------------------------------- #
 #  Power spectral density                                                      #
 # --------------------------------------------------------------------------- #
-def power_spectrum(sig, fs, method="welch", nperseg=None):
-    """One-sided PSD. 'welch' (Hann, averaged) or 'fft' (single-shot)."""
+def power_spectrum(sig, fs, method="welch", nperseg=None, nfft_factor=0):
+    """One-sided PSD. 'welch' (Hann, averaged) or 'fft' (single-shot).
+
+    For 'welch', the default ``nperseg`` is half the signal so the real
+    frequency resolution is fs/(len/2) ~= 2/duration (a few averaging segments
+    at 50% overlap). ``nfft = nfft_factor * nperseg`` zero-pads each segment,
+    interpolating the spectrum onto a denser, smoother frequency grid without
+    altering the underlying resolution.
+    """
     sig = np.asarray(sig, dtype=float)
     if method == "welch":
         if nperseg is None:
-            nperseg = min(len(sig), max(256, len(sig) // 6))
-        f, p = welch(sig, fs=fs, nperseg=nperseg, window="hann", scaling="density")
+            nperseg = min(len(sig), max(256, len(sig) // 2))
+        nfft = max(nperseg, int(nfft_factor) * nperseg)
+        f, p = welch(sig, fs=fs, nperseg=nperseg, nfft=nfft,
+                     window="hann", scaling="density")
     else:
         n = len(sig)
         f = np.fft.rfftfreq(n, d=1.0 / fs)
@@ -113,7 +122,7 @@ def power_spectrum(sig, fs, method="welch", nperseg=None):
     return f, p
 
 
-def band_powers(f, p, bands, flo=1.0, fhi=80.0):
+def band_powers(f, p, bands, flo=0.5, fhi=200.0):
     """Relative power per band (normalised within [flo, fhi])."""
     sel = (f >= flo) & (f <= fhi)
     tot = p[sel].sum()

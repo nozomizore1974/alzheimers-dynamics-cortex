@@ -19,15 +19,35 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# distinct colour per (pop, kind) sub-population
-_KIND_SHADE = {"healthy": 1.0, "abeta": 0.55, "abeta_hyper": 0.45, "abeta_supp": 0.75}
-_POP_COLOR = {"L23": "#1f77b4", "L4": "#2ca02c", "L5": "#d62728", "L6": "#9467bd"}
+# Each (E/I × health-status) combination gets a unique hue.
+# E group: cool hues (blue → cyan → violet → orchid)
+# I group: warm hues (orange → yellow-green → red → brown)
+_SUBSET_COLOR = {
+    ("E", "healthy"):     "#1f77b4",  # blue
+    ("E", "abeta_supp"):  "#17becf",  # cyan
+    ("E", "abeta"):       "#9467bd",  # violet
+    ("E", "abeta_hyper"): "#e377c2",  # orchid
+    ("I", "healthy"):     "#ff7f0e",  # orange
+    ("I", "abeta_supp"):  "#bcbd22",  # yellow-green
+    ("I", "abeta"):       "#d62728",  # red
+    ("I", "abeta_hyper"): "#8c564b",  # brown
+}
+_LAYER_COLOR = {"L23": "#5ba3d9", "L4": "#74c476", "L5": "#e6550d", "L6": "#9467bd"}
+
+# Cortical layer label -> Roman-numeral convention used on figures.
+_LAYER_ROMAN = {"1": "I", "23": "II/III", "2": "II", "3": "III",
+                "4": "IV", "5": "V", "6": "VI"}
+
+
+def _pop_label(name):
+    """'L23E' -> 'II/III E', 'L4I' -> 'IV I' (layer Roman numeral + E/I)."""
+    layer = name[:-1].lstrip("L")
+    return f"{_LAYER_ROMAN.get(layer, layer)} {name[-1]}"
 
 
 def _subset_color(pop, kind):
-    base = np.array(matplotlib.colors.to_rgb(_POP_COLOR[pop[:-1]]))
-    shade = _KIND_SHADE.get(kind, 1.0)
-    return tuple(np.clip(base * shade + (1 - shade) * 0.15, 0, 1))
+    ei = pop[-1]  # "E" or "I"
+    return _SUBSET_COLOR.get((ei, kind), "#888888")
 
 
 def _sample(x, y, nmax=6000, rng=None):
@@ -43,12 +63,38 @@ def plot_raster_total(result, path, nmax=12000):
     warm = result["warmup"]
     g_lo = min(v[0] for v in result["pop_gid"].values())
     m = t > warm
-    tt, ss = _sample(t[m], (s[m] - g_lo), nmax)
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(tt, ss, ".", ms=1.0, color="k", rasterized=True)
-    ax.set_xlabel("time (ms)"); ax.set_ylabel("neuron #")
+    ss, tt = s[m], t[m]
+
+    e_mask = np.zeros(ss.size, dtype=bool)
+    i_mask = np.zeros(ss.size, dtype=bool)
+    for sub in result["subsets"]:
+        in_range = (ss >= sub["g0"]) & (ss <= sub["g1"])
+        if sub["pop"].endswith("E"):
+            e_mask |= in_range
+        else:
+            i_mask |= in_range
+
+    rng = np.random.default_rng(0)
+    nmax_ei = nmax // 2
+    fig, ax = plt.subplots(figsize=(10, 8))
+    te, se = _sample(tt[e_mask], (ss[e_mask] - g_lo), nmax_ei, rng)
+    ax.plot(te, se, ".", ms=1.0, color="#1f77b4", rasterized=True, label="E")
+    ti, si = _sample(tt[i_mask], (ss[i_mask] - g_lo), nmax_ei, rng)
+    ax.plot(ti, si, ".", ms=1.0, color="#d62728", rasterized=True, label="I")
+
+    # y-axis ticks = each population centred on its (contiguous) GID band, labelled
+    # by layer + E/I (e.g. 'II/III E'); faint lines mark population boundaries.
+    yticks, ylabels = [], []
+    for name, (g0, g1, _n) in result["pop_gid"].items():
+        lo, hi = g0 - g_lo, g1 - g_lo
+        yticks.append((lo + hi) / 2); ylabels.append(_pop_label(name))
+        ax.axhline(hi + 0.5, color="0.8", lw=0.5)
+    ax.set_yticks(yticks); ax.set_yticklabels(ylabels); ax.invert_yaxis()
+    ax.set_xlabel("time (ms)"); ax.set_ylabel("layer / population")
     ax.set_xlim(warm, result["t_sim"]); ax.set_title("Total raster")
-    fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
+    ax.legend(markerscale=6, fontsize=8, loc="upper left",
+              bbox_to_anchor=(1.01, 1), borderaxespad=0)
+    fig.tight_layout(); fig.savefig(path, dpi=120, bbox_inches="tight"); plt.close(fig)
     return path
 
 
@@ -56,7 +102,7 @@ def plot_raster_subpop(result, mp, path, nmax_per=3000):
     s, t = result["senders"], result["times"]
     warm = result["warmup"]
     rng = np.random.default_rng(0)
-    fig, ax = plt.subplots(figsize=(11, 6))
+    fig, ax = plt.subplots(figsize=(11, 9))
     y0, yticks, ylabels = 0, [], []
     seen = set()
     for name in mp.pop_names:
@@ -73,8 +119,9 @@ def plot_raster_subpop(result, mp, path, nmax_per=3000):
     ax.set_yticks(yticks); ax.set_yticklabels(ylabels); ax.invert_yaxis()
     ax.set_xlim(warm, result["t_sim"]); ax.set_xlabel("time (ms)")
     ax.set_title("Raster by sub-population (colour = layer; shade = healthy/Abeta subset)")
-    ax.legend(markerscale=6, fontsize=8, loc="upper right")
-    fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
+    ax.legend(markerscale=6, fontsize=8, loc="upper left",
+              bbox_to_anchor=(1.01, 1), borderaxespad=0)
+    fig.tight_layout(); fig.savefig(path, dpi=120, bbox_inches="tight"); plt.close(fig)
     return path
 
 
@@ -84,12 +131,14 @@ def plot_lfp(lfp, warmup, path):
     fig, axes = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
     axes[0].plot(t[m], roi[m], lw=0.7, color="k")
     axes[0].set_ylabel("ROI LFP (a.u.)"); axes[0].set_title("LFP proxy")
+    axes[0].grid(True, alpha=0.3)
     off = 0.0
     for lay, sig in layer.items():
         z = (sig[m] - sig[m].mean()) / sig[m].std()
-        axes[1].plot(t[m], z + off, lw=0.6, label=lay); off += 6
+        axes[1].plot(t[m], z + off, lw=0.6, color=_LAYER_COLOR.get(lay), label=lay); off += 6
     axes[1].set_yticks([]); axes[1].set_xlabel("time (ms)")
     axes[1].set_ylabel("per-layer (z, offset)"); axes[1].legend(ncol=4, fontsize=8)
+    axes[1].grid(True, alpha=0.3)
     fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
     return path
 
