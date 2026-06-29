@@ -1,17 +1,17 @@
 # Run configuration for one cortical-column simulation + analysis.
 # Edit and re-run main.py.  Inline comments give the unit of each parameter.
 
-name: "baseline"
+name: "baseline_downscaled"
 model: aeif              # categorical: 'iaf' or 'aeif'
 abeta_ratio: 0.       # dimensionless fraction in [0,1] (0 = healthy)
-N_scale: 1.0             # dimensionless fraction (population downscaling; 1.0 = full scale)
-weight_ref_scale: 1.0    # dimensionless fraction (N_scale at which weights were tuned)
+N_scale: 0.1             # dimensionless fraction (population downscaling; 1.0 = full scale)
+weight_ref_scale: 0.1    # dimensionless fraction (N_scale at which weights were tuned)
 
 simulation:
   t_sim: 2000.0          # ms
   warmup: 300.0          # ms (discarded from analysis)
   resolution: 0.1        # ms (simulation time step)
-  master_seed: 55        # integer RNG seed
+  master_seed: 42        # integer RNG seed
   n_threads: 8           # count (NEST local threads)
   V0_mean: -150.0        # mV (initial membrane potential mean)
   V0_sd: 50.0            # mV (initial membrane potential SD)
@@ -45,7 +45,7 @@ input:
 
 analysis:
   bands:                 # Hz [low, high] per band (used for relative band power)
-    delta: [1, 4]
+    delta: [0.5, 4]
     theta: [4, 8]
     alpha: [8, 13]
     beta:  [13, 30]
