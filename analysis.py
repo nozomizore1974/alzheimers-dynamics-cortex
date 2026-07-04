@@ -62,7 +62,8 @@ def lfp_proxy(result, mp, resolution):
 
     Returns
     -------
-    dict with: t (ms), roi (1d), layer ({layer: 1d}), pop ((8, T)).
+    dict with: t (ms), roi (1d), roi_z (1d, z-scored roi), layer ({layer: 1d}),
+    pop ((8, T)).
     """
     dt = resolution
     n_bins = int(round(result["t_sim"] / dt))
@@ -88,7 +89,11 @@ def lfp_proxy(result, mp, resolution):
         idx = [i for i, pl in enumerate(mp.pop_layer) if pl == lay]
         w = Nv[idx]
         layer[lay] = (lfp_pop[idx] * w[:, None]).sum(0) / w.sum()
-    return dict(t=t_axis, roi=roi, layer=layer, pop=lfp_pop)
+
+    # full-length z-score using post-warmup statistics (matches PSD convention)
+    keep = t_axis > result["warmup"]
+    roi_z = (roi - roi[keep].mean()) / roi[keep].std()
+    return dict(t=t_axis, roi=roi, roi_z=roi_z, layer=layer, pop=lfp_pop)
 
 
 def zscore(sig):

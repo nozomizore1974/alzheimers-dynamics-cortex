@@ -126,19 +126,21 @@ def plot_raster_subpop(result, mp, path, nmax_per=3000):
 
 
 def plot_lfp(lfp, warmup, path):
-    t, roi, layer = lfp["t"], lfp["roi"], lfp["layer"]
+    t, roi, roi_z, layer = lfp["t"], lfp["roi"], lfp["roi_z"], lfp["layer"]
     m = t > warmup
-    fig, axes = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(11, 8.5), sharex=True)
     axes[0].plot(t[m], roi[m], lw=0.7, color="k")
     axes[0].set_ylabel("ROI LFP (a.u.)"); axes[0].set_title("LFP proxy")
     axes[0].grid(True, alpha=0.3)
+    axes[1].plot(t[m], roi_z[m], lw=0.7, color="C3")
+    axes[1].set_ylabel("ROI LFP (z)"); axes[1].grid(True, alpha=0.3)
     off = 0.0
     for lay, sig in layer.items():
         z = (sig[m] - sig[m].mean()) / sig[m].std()
-        axes[1].plot(t[m], z + off, lw=0.6, color=_LAYER_COLOR.get(lay), label=lay); off += 6
-    axes[1].set_yticks([]); axes[1].set_xlabel("time (ms)")
-    axes[1].set_ylabel("per-layer (z, offset)"); axes[1].legend(ncol=4, fontsize=8)
-    axes[1].grid(True, alpha=0.3)
+        axes[2].plot(t[m], z + off, lw=0.6, color=_LAYER_COLOR.get(lay), label=lay); off += 6
+    axes[2].set_yticks([]); axes[2].set_xlabel("time (ms)")
+    axes[2].set_ylabel("per-layer (z, offset)"); axes[2].legend(ncol=4, fontsize=8)
+    axes[2].grid(True, alpha=0.3)
     fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
     return path
 

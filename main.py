@@ -82,9 +82,9 @@ def main(config_path=None):
                             logger=log.info)
 
     pop_rates, subset_rates = memo("rates", lambda: AN.firing_rates(result))
-    lfp = memo("lfp", lambda: AN.lfp_proxy(result, mp, res_dt), res_dt)
+    lfp = memo("lfp", lambda: AN.lfp_proxy(result, mp, res_dt), res_dt, "roi_z")
 
-    roi_z = AN.zscore(lfp["roi"][lfp["t"] > warm])
+    roi_z = lfp["roi_z"][lfp["t"] > warm]
     f, p = memo("psd", lambda: AN.power_spectrum(roi_z, fs, method=ana["psd_method"]),
                 ana["psd_method"], warm)
     bands = {b: tuple(v) for b, v in ana["bands"].items()}
