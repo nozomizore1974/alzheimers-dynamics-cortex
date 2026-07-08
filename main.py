@@ -49,6 +49,10 @@ def main(config_path=None):
     log.info(f"[spec] -- {exp} --")
     outpath = os.path.join(os.getcwd(), "out", exp)
     os.makedirs(outpath, exist_ok=True)
+    # Persist the full resolved config so the run can be re-analysed later
+    # (e.g. by dynamics.load_run) with the exact parameters that produced it.
+    with open(os.path.join(outpath, "config_used.json"), "w") as fp:
+        json.dump(cfg, fp, indent=2)
     log.info(f"[data] model={cfg['model']} abeta_ratio={cfg['abeta_ratio']} "
              f"N_scale={cfg['N_scale']} pops={len(mc['pop_names'])}")
 
@@ -128,11 +132,28 @@ def main(config_path=None):
                                                  os.path.join(outpath, "plv_theta_beta_comodulogram.png")),
     }
 
+    # ---------------- 5b. dynamics: structural + mean-field stability ----------------
+    # Predicts, from the wiring + neuron parameters, whether the async-irregular
+    # state is stable or the column is driven to a synchronous-regular one, and
+    # which populations / frequency drive it. Guarded: never breaks the pipeline.
+    dyn_metrics = None
+    try:
+        import dynamics as DYN
+        dyn = DYN.analyze(mp, pop_rates, outpath)
+        dyn_metrics = {"stability": dyn["stability"],
+                       "spectral_radius": dyn["structural"]["spectral_radius"]}
+        log.info(f"[dynamics] margin={dyn['stability']['margin']:.2f} "
+                 f"f*={dyn['stability']['critical_freq']:.0f}Hz "
+                 f"rho={dyn['structural']['spectral_radius']:.2g}")
+    except Exception as err:  # noqa: BLE001
+        log.info(f"[dynamics] skipped ({err})")
+
     metrics = {
         "config": {k: cfg[k] for k in ("model", "abeta_ratio", "N_scale")},
         "neurons": int(mp.N.sum()), "internal_synapses": int(mp.n_syn.sum()),
         "pop_rates": pop_rates, "band_powers": bp,
         "plv_nm": nm, "plv_diag_mean": float(np.mean(np.diag(plv_M))),
+        "dynamics": dyn_metrics,
         "figures": {k: os.path.relpath(v, HERE) for k, v in figs.items()},
     }
     with open(os.path.join(outpath, "metrics.json"), "w") as fp:

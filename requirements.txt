@@ -3,5 +3,8 @@ numpy>=1.21
 scipy>=1.7
 matplotlib>=3.4
 pyyaml>=5.1
+# Mean-field / stability analysis (dynamics.py, Tier 1 & 2). LIF transfer
+# function, effective connectivity and delay-distribution helpers.
+nnmt>=1.3
 # NEST simulator 3.x is required but is NOT a pip package on all platforms.
 # Install separately, e.g.:  conda install -c conda-forge nest-simulator=3.8
