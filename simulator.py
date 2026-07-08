@@ -25,9 +25,15 @@ def _make(model, n, params, extra_I_e=0.0):
     return nest.Create(model, int(n), params=p)
 
 
-def build_and_simulate(mp, cfg, logger=print):
+def build_and_simulate(mp, cfg, logger=print, data_path=None):
     """
     Build and run the column described by ``mp`` (ModelParams) and ``cfg``.
+
+    Parameters
+    ----------
+    data_path : str, optional
+        If given, spikes are additionally streamed to raw NEST ``ascii`` files
+        ``spikes-*.dat`` under this directory (one per recording thread).
 
     Returns
     -------
@@ -45,8 +51,11 @@ def build_and_simulate(mp, cfg, logger=print):
 
     nest.ResetKernel()
     nest.set_verbosity("M_ERROR")
-    nest.SetKernelStatus({"resolution": sim["resolution"], "local_num_threads": sim["n_threads"],
-                          "rng_seed": sim["master_seed"], "overwrite_files": True})
+    kernel = {"resolution": sim["resolution"], "local_num_threads": sim["n_threads"],
+              "rng_seed": sim["master_seed"], "overwrite_files": True}
+    if data_path is not None:
+        kernel["data_path"] = data_path
+    nest.SetKernelStatus(kernel)
 
     # ---------- populations (healthy / Abeta subsets) ----------
     pops, pop_gid, subsets = {}, {}, []
@@ -117,6 +126,11 @@ def build_and_simulate(mp, cfg, logger=print):
     sr = nest.Create("spike_recorder")
     for nc in pops.values():
         nest.Connect(nc, sr)
+    if data_path is not None:
+        file_sr = nest.Create("spike_recorder",
+                              params={"record_to": "ascii", "label": "spikes"})
+        for nc in pops.values():
+            nest.Connect(nc, file_sr)
     if logger:
         logger(f"[simulate] {sum(v[2] for v in pop_gid.values())} neurons, "
                f"abeta_ratio={load}, t_sim={sim['t_sim']} ms ...")

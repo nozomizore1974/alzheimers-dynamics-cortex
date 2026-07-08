@@ -66,7 +66,8 @@ def main(config_path=None):
 
     # ---------------- 3. simulate (memoised) ----------------
     result = cache.cached(os.path.join(cdir, "sim.pkl"), sim_key,
-                          lambda: simulator.build_and_simulate(mp, cfg, logger=log.info),
+                          lambda: simulator.build_and_simulate(mp, cfg, logger=log.info,
+                                                               data_path=outpath),
                           logger=log.info)
 
     # ---------------- 4. analyse (each heavy product memoised) ----------------
