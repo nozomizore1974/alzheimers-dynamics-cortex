@@ -97,9 +97,9 @@ def main(config_path=None):
 
     wv = ana["wavelet"]
     wf, wt, wp = memo("wavelet",
-        lambda: AN.wavelet_scalogram(AN.zscore(lfp["roi"]), fs, wv["fmin"], wv["fmax"],
+        lambda: AN.wavelet_scalogram(lfp["roi_z"], fs, wv["fmin"], wv["fmax"],
                                      wv["n_scales"], wv["w"]),
-        wv)
+        wv, "roi_z")
 
     plv = ana["plv"]
     nm = plv["nm"]
