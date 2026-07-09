@@ -1,0 +1,73 @@
+# Baseline template for the current AEIF column model.
+# This file is under experiments/templates/ so Snakefile will not run it by default.
+# Run explicitly with:
+#   python main.py experiments/templates/aeif_baseline_template.yaml
+#
+# Purpose:
+#   Healthy reference configuration with project-specific disinhibition and
+#   layer-specific external-weight tweaks turned off. Use this as the starting
+#   point before scanning eta_ext, delay_scale, tau_syn_*, or inhibition strength.
+
+name: "aeif_baseline_template"
+model: aeif
+abeta_ratio: 0.0
+N_scale: 0.1
+weight_ref_scale: 1.0
+output_dir: "out"  # base output dir for this run's out/<name>/ subtree; relative to cwd unless absolute
+
+simulation:
+  t_sim: 2000.0
+  warmup: 1000.0
+  resolution: 0.1
+  master_seed: 42
+  V0_mean: -150.0
+  V0_sd: 50.0
+
+abeta:
+  hyper_frac: 0.20
+  I_e_hyper: 40.0
+  I_e_supp: -100.0
+
+synapse:
+  PSP_e: 0.1
+  PSP_ext: 0.1
+  g: -4.0
+  PSP_rel: 0.1
+  tau_syn_ex: 2.0
+  tau_syn_in: 2.0
+  local_scaling4Eto23E: 2.0
+  scaling5E: 1.0
+  scaling6E: 1.0
+  g_inh: 1.0
+  wIE_floor: 1.0
+
+delay:
+  delay_e: 1.5
+  delay_i: 0.75
+  delay_rel: 0.5
+  delay_scale: 1.0
+
+input:
+  eta_ext: 1.0
+
+analysis:
+  spike_count_bin: 1.0    # ms (bin width for the total spike-count strip under the raster)
+  bands:
+    delta: [0.5, 4]
+    theta: [4, 8]
+    alpha: [8, 13]
+    beta:  [13, 30]
+    gamma: [30, 80]
+  psd_method: welch
+  wavelet:
+    fmin: 2.0
+    fmax: 80.0
+    n_scales: 64
+    w: 6.0
+  plv:
+    theta_band: [4, 8]
+    beta_band:  [13, 30]
+    nm: [3, 1]
+    theta_subfreqs: [3, 4, 5, 6, 7, 8, 9]
+    beta_subfreqs:  [12, 15, 18, 21, 24, 27, 30]
+    sub_bw: 2.0
