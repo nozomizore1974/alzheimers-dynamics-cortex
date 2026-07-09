@@ -51,7 +51,10 @@ def build_and_simulate(mp, cfg, logger=print, data_path=None):
 
     nest.ResetKernel()
     nest.set_verbosity("M_ERROR")
-    kernel = {"resolution": sim["resolution"], "local_num_threads": sim["n_threads"],
+    # Thread count is deliberately not a config-file field: it's an execution
+    # concern (wired through main.py's --threads / Snakemake's `threads:`),
+    # not a modelling parameter, so it defaults to 1 if never overridden.
+    kernel = {"resolution": sim["resolution"], "local_num_threads": sim.get("n_threads", 1),
               "rng_seed": sim["master_seed"], "overwrite_files": True}
     if data_path is not None:
         kernel["data_path"] = data_path

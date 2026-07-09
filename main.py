@@ -19,6 +19,7 @@ import os
 import sys
 import json
 import time
+import argparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -33,12 +34,22 @@ import simulator
 import analysis as AN
 import plotting as PL
 
-def main(config_path=None):
+def main(config_path=None, n_threads=None):
+    """
+    Parameters
+    ----------
+    n_threads : int, optional
+        Overrides ``cfg["simulation"]["n_threads"]`` (NEST kernel
+        ``local_num_threads``). Lets the caller (e.g. Snakemake's ``threads``
+        directive) pick the thread count independently of the config file.
+    """
     t0 = time.time()
     log = _logger.get_logger("main")
 
     # ---------------- 1. read data ----------------
     cfg = data_loader.load_config(config_path) if config_path else data_loader.load_config()
+    if n_threads is not None:
+        cfg["simulation"]["n_threads"] = n_threads
     mc = data_loader.load_microcircuit()
     nps = data_loader.load_neuron_params()
     exp = cfg["name"]
@@ -163,5 +174,16 @@ def main(config_path=None):
     return metrics
 
 
+def _parse_args(argv):
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("config", nargs="?", default="data/aeif_baseline_template.yaml",
+                   help="path to config YAML/JSON (default: data/config.yaml)")
+    p.add_argument("--threads", "-j", type=int, default=None,
+                   help="override simulation.n_threads (NEST local_num_threads); "
+                        "wire this to Snakemake's `threads` directive")
+    return p.parse_args(argv)
+
+
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else None)
+    args = _parse_args(sys.argv[1:])
+    main(args.config, n_threads=args.threads)
