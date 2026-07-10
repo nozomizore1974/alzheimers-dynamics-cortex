@@ -1,8 +1,9 @@
 """
 analysis.py -- results analysis for one column simulation.
 
-Provides: firing rates, kernel LFP proxy (ROI + per layer), power spectral
-density (Welch / FFT), Morlet wavelet scalogram, and cross-frequency theta-beta
+Provides: firing rates, binned spike counts (total / per-layer / per-population,
+PSTH-style), kernel LFP proxy (ROI + per layer), power spectral density
+(Welch / FFT), Morlet wavelet scalogram, and cross-frequency theta-beta
 phase-locking value (a layer x layer n:m PLV matrix and a fine-frequency
 comodulogram).
 
@@ -49,6 +50,71 @@ def firing_rates(result, dt=None):
         cnt = int(((s >= r["g0"]) & (s <= r["g1"]) & (t > warm)).sum())
         subset_rates.append({**r, "rate": cnt / (r["n"] * dur)})
     return pop_rates, subset_rates
+
+
+def spike_count_series(result, bin_ms=1.0):
+    """
+    Total spike count per time bin across all recorded neurons (PSTH-style),
+    over the full ``t_sim`` span -- pairs with a raster plot as a density strip.
+
+    Returns (t_centres (ms), counts) with bin width ``bin_ms``.
+    """
+    t_sim = result["t_sim"]
+    n_bins = max(1, int(round(t_sim / bin_ms)))
+    edges = np.linspace(0.0, t_sim, n_bins + 1)
+    counts, _ = np.histogram(result["times"], bins=edges)
+    centres = (edges[:-1] + edges[1:]) / 2.0
+    return centres, counts
+
+
+def population_spike_count_series(result, bin_ms=1.0):
+    """
+    Per-population spike count per time bin (the model's 8 populations), on the
+    same bins as :func:`spike_count_series` -- pairs with a sub-population raster.
+
+    Returns (t_centres (ms), {pop_name: counts}).
+    """
+    t_sim = result["t_sim"]
+    n_bins = max(1, int(round(t_sim / bin_ms)))
+    edges = np.linspace(0.0, t_sim, n_bins + 1)
+    centres = (edges[:-1] + edges[1:]) / 2.0
+    counts = {name: _spike_counts(result, g0, g1, edges)
+              for name, (g0, g1, _n) in result["pop_gid"].items()}
+    return centres, counts
+
+
+def layer_spike_count_series(result, mp, bin_ms=1.0):
+    """
+    Per-layer spike count per time bin, summing the populations that share a
+    layer (built on :func:`population_spike_count_series`).
+
+    Returns (t_centres (ms), {layer: counts}).
+    """
+    centres, pop_counts = population_spike_count_series(result, bin_ms)
+    layer_counts = {
+        lay: sum(pop_counts[name] for name, pl in zip(mp.pop_names, mp.pop_layer) if pl == lay)
+        for lay in mp.layers
+    }
+    return centres, layer_counts
+
+
+def health_spike_count_series(result, bin_ms=1.0):
+    """
+    Total spike count per time bin split by health status: 'healthy' subsets
+    vs all Abeta-affected subsets (abeta_hyper/abeta_supp/abeta pooled into
+    'abeta'), on the same bins as :func:`spike_count_series`.
+
+    Returns (t_centres (ms), {"healthy": counts, "abeta": counts}).
+    """
+    t_sim = result["t_sim"]
+    n_bins = max(1, int(round(t_sim / bin_ms)))
+    edges = np.linspace(0.0, t_sim, n_bins + 1)
+    centres = (edges[:-1] + edges[1:]) / 2.0
+    groups = {"healthy": np.zeros(n_bins, dtype=int), "abeta": np.zeros(n_bins, dtype=int)}
+    for r in result["subsets"]:
+        key = "healthy" if r["kind"] == "healthy" else "abeta"
+        groups[key] += _spike_counts(result, r["g0"], r["g1"], edges)
+    return centres, groups
 
 
 # --------------------------------------------------------------------------- #

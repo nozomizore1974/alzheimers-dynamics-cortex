@@ -98,6 +98,12 @@ def main(config_path=None, n_threads=None):
                             logger=log.info)
 
     pop_rates, subset_rates = memo("rates", lambda: AN.firing_rates(result))
+    sc_bin = ana.get("spike_count_bin", 1.0)
+    spike_count = memo("spike_count", lambda: AN.spike_count_series(result, sc_bin), sc_bin)
+    layer_spike_count = memo("layer_spike_count",
+        lambda: AN.layer_spike_count_series(result, mp, sc_bin), sc_bin)
+    health_spike_count = memo("health_spike_count",
+        lambda: AN.health_spike_count_series(result, sc_bin), sc_bin)
     lfp = memo("lfp", lambda: AN.lfp_proxy(result, mp, res_dt), res_dt, "roi_z")
 
     roi_z = lfp["roi_z"][lfp["t"] > warm]
@@ -132,8 +138,15 @@ def main(config_path=None, n_threads=None):
 
     # ---------------- 5. plot ----------------
     figs = {
-        "raster_total":   PL.plot_raster_total(result, os.path.join(outpath, "raster_total.png")),
-        "raster_subpop":  PL.plot_raster_subpop(result, mp, os.path.join(outpath, "raster_subpop.png")),
+        "raster_total":   PL.plot_raster_total(result, spike_count, layer_spike_count,
+                                               os.path.join(outpath, "raster_total.png")),
+    }
+    # A healthy-vs-Abeta breakdown is meaningless when the run has no Abeta
+    # subsets at all (abeta_ratio == 0 -> simulator never creates them).
+    if cfg["abeta_ratio"] > 0:
+        figs["raster_subpop"] = PL.plot_raster_subpop(result, mp, spike_count, health_spike_count,
+                                                       os.path.join(outpath, "raster_subpop.png"))
+    figs.update({
         "lfp":            PL.plot_lfp(lfp, warm, os.path.join(outpath, "lfp.png")),
         "psd":            PL.plot_psd(f, p, bands, os.path.join(outpath, "psd.png"), fmax=wv["fmax"]),
         "wavelet":        PL.plot_wavelet(wf, wt, wp, warm, os.path.join(outpath, "wavelet.png")),
@@ -141,7 +154,7 @@ def main(config_path=None, n_threads=None):
                                              os.path.join(outpath, "plv_theta_beta_matrix.png")),
         "plv_comodulogram": PL.plot_comodulogram(th_f, be_f, plv_C, nm[0], nm[1],
                                                  os.path.join(outpath, "plv_theta_beta_comodulogram.png")),
-    }
+    })
 
     # ---------------- 5b. dynamics: structural + mean-field stability ----------------
     # Predicts, from the wiring + neuron parameters, whether the async-irregular

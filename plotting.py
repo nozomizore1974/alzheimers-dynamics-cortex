@@ -1,9 +1,13 @@
 """
 plotting.py -- figures for one column simulation.
 
-  plot_raster_total      : all spikes, one colour
+  plot_raster_total      : all spikes, one colour, + one bar strip per layer
+                           and a total spike-count bar strip below
   plot_raster_subpop     : spikes coloured by sub-population (8 pops x
-                           healthy / Abeta-hyper / Abeta-supp / Abeta-I)
+                           healthy / Abeta-hyper / Abeta-supp / Abeta-I),
+                           + total, healthy-only and Abeta-only spike-count
+                           bar strips below. Skip this figure when the run has
+                           no Abeta subsets (abeta_ratio == 0) -- see main.py.
   plot_lfp               : ROI + per-layer LFP proxy time series
   plot_psd               : power spectral density with band shading
   plot_wavelet           : Morlet scalogram (time x frequency)
@@ -58,7 +62,28 @@ def _sample(x, y, nmax=6000, rng=None):
     return x, y
 
 
-def plot_raster_total(result, path, nmax=12000):
+def _count_strip(ax, t_centres, counts, warm, bin_ms, color="0.25", alpha=1.0,
+                 hatch=None, label=None, ylabel=None):
+    """One spike-count bar series (shared style for total/per-layer/per-population strips)."""
+    cm = t_centres > warm
+    ax.bar(t_centres[cm], counts[cm], width=bin_ms, color=color, alpha=alpha,
+          hatch=hatch, edgecolor=color if hatch else None, linewidth=0.4,
+          align="center", label=label)
+    ax.set_ylabel(ylabel if ylabel is not None else f"spikes / {bin_ms:g} ms")
+    ax.grid(True, axis="y", alpha=0.3)
+
+
+def plot_raster_total(result, spike_count, layer_spike_count, path, nmax=12000):
+    """
+    Parameters
+    ----------
+    spike_count : (t_centres_ms, counts) from ``analysis.spike_count_series``.
+    layer_spike_count : (t_centres_ms, {layer: counts}) from
+        ``analysis.layer_spike_count_series``.
+
+    Below the raster: one bar strip per layer (own panel each), then the total
+    spike-count bar strip at the bottom (shared time axis throughout).
+    """
     s, t = result["senders"], result["times"]
     warm = result["warmup"]
     g_lo = min(v[0] for v in result["pop_gid"].values())
@@ -74,9 +99,17 @@ def plot_raster_total(result, path, nmax=12000):
         else:
             i_mask |= in_range
 
+    lc_t, lc_counts = layer_spike_count
+    layers = list(lc_counts)
+    n_layers = len(layers)
+    height_ratios = [4] + [1] * n_layers + [1]
+    fig, axes = plt.subplots(len(height_ratios), 1, figsize=(10, 5 + 2 * len(height_ratios)),
+                             sharex=True,
+                             gridspec_kw={"height_ratios": height_ratios, "hspace": 0.08})
+    ax = axes[0]
+
     rng = np.random.default_rng(0)
     nmax_ei = nmax // 2
-    fig, ax = plt.subplots(figsize=(10, 8))
     te, se = _sample(tt[e_mask], (ss[e_mask] - g_lo), nmax_ei, rng)
     ax.plot(te, se, ".", ms=1.0, color="#1f77b4", rasterized=True, label="E")
     ti, si = _sample(tt[i_mask], (ss[i_mask] - g_lo), nmax_ei, rng)
@@ -90,19 +123,43 @@ def plot_raster_total(result, path, nmax=12000):
         yticks.append((lo + hi) / 2); ylabels.append(_pop_label(name))
         ax.axhline(hi + 0.5, color="0.8", lw=0.5)
     ax.set_yticks(yticks); ax.set_yticklabels(ylabels); ax.invert_yaxis()
-    ax.set_xlabel("time (ms)"); ax.set_ylabel("layer / population")
+    ax.set_ylabel("layer / population")
     ax.set_xlim(warm, result["t_sim"]); ax.set_title("Total raster")
     ax.legend(markerscale=6, fontsize=8, loc="upper left",
               bbox_to_anchor=(1.01, 1), borderaxespad=0)
-    fig.tight_layout(); fig.savefig(path, dpi=120, bbox_inches="tight"); plt.close(fig)
+    plt.setp(ax.get_xticklabels(), visible=False)
+
+    sc_t, sc_counts = spike_count
+    bin_ms = float(sc_t[1] - sc_t[0]) if len(sc_t) > 1 else 1.0
+
+    for ax_l, lay in zip(axes[1:1 + n_layers], layers):
+        _count_strip(ax_l, lc_t, lc_counts[lay], warm, bin_ms,
+                    color=_LAYER_COLOR.get(lay), ylabel=lay)
+        plt.setp(ax_l.get_xticklabels(), visible=False)
+
+    axc = axes[-1]
+    _count_strip(axc, sc_t, sc_counts, warm, bin_ms, ylabel=f"total\n(spikes/{bin_ms:g}ms)")
+    axc.set_xlabel("time (ms)")
+
+    fig.savefig(path, dpi=600, bbox_inches="tight"); plt.close(fig)
     return path
 
 
-def plot_raster_subpop(result, mp, path, nmax_per=3000):
+def plot_raster_subpop(result, mp, spike_count, health_spike_count, path, nmax_per=3000):
+    """
+    Parameters
+    ----------
+    spike_count : (t_centres_ms, counts) from ``analysis.spike_count_series``,
+        drawn as the total spike-count bar strip below the raster.
+    health_spike_count : (t_centres_ms, {"healthy": counts, "abeta": counts})
+        from ``analysis.health_spike_count_series``, drawn as two further bar
+        strips below that: healthy subsets, then Abeta-affected subsets.
+    """
     s, t = result["senders"], result["times"]
     warm = result["warmup"]
     rng = np.random.default_rng(0)
-    fig, ax = plt.subplots(figsize=(11, 9))
+    fig, (ax, axc, axh, axa) = plt.subplots(4, 1, figsize=(11, 16), sharex=True,
+                                            gridspec_kw={"height_ratios": [4, 1, 1, 1], "hspace": 0.08})
     y0, yticks, ylabels = 0, [], []
     seen = set()
     for name in mp.pop_names:
@@ -117,11 +174,27 @@ def plot_raster_subpop(result, mp, path, nmax_per=3000):
             y0 += r["n"]
         yticks.append((block0 + y0) / 2); ylabels.append(name)
     ax.set_yticks(yticks); ax.set_yticklabels(ylabels); ax.invert_yaxis()
-    ax.set_xlim(warm, result["t_sim"]); ax.set_xlabel("time (ms)")
+    ax.set_xlim(warm, result["t_sim"])
     ax.set_title("Raster by sub-population (colour = layer; shade = healthy/Abeta subset)")
     ax.legend(markerscale=6, fontsize=8, loc="upper left",
               bbox_to_anchor=(1.01, 1), borderaxespad=0)
-    fig.tight_layout(); fig.savefig(path, dpi=120, bbox_inches="tight"); plt.close(fig)
+    plt.setp(ax.get_xticklabels(), visible=False)
+
+    sc_t, sc_counts = spike_count
+    bin_ms = float(sc_t[1] - sc_t[0]) if len(sc_t) > 1 else 1.0
+    _count_strip(axc, sc_t, sc_counts, warm, bin_ms, ylabel=f"total\n(spikes/{bin_ms:g}ms)")
+    plt.setp(axc.get_xticklabels(), visible=False)
+
+    hc_t, hc_counts = health_spike_count
+    _count_strip(axh, hc_t, hc_counts["healthy"], warm, bin_ms, color="#1f77b4",
+                ylabel=f"healthy\n(spikes/{bin_ms:g}ms)")
+    plt.setp(axh.get_xticklabels(), visible=False)
+
+    _count_strip(axa, hc_t, hc_counts["abeta"], warm, bin_ms, color="#d62728",
+                ylabel=f"abeta\n(spikes/{bin_ms:g}ms)")
+    axa.set_xlabel("time (ms)")
+
+    fig.savefig(path, dpi=600, bbox_inches="tight"); plt.close(fig)
     return path
 
 
@@ -141,7 +214,7 @@ def plot_lfp(lfp, warmup, path):
     axes[2].set_yticks([]); axes[2].set_xlabel("time (ms)")
     axes[2].set_ylabel("per-layer (z, offset)"); axes[2].legend(ncol=4, fontsize=8)
     axes[2].grid(True, alpha=0.3)
-    fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
+    fig.tight_layout(); fig.savefig(path, dpi=600); plt.close(fig)
     return path
 
 
@@ -153,7 +226,7 @@ def plot_psd(f, p, bands, path, fmax=80.0):
         ax.axvspan(lo, hi, color=c, alpha=0.13, label=b)
     ax.set_xlim(0, fmax); ax.set_xlabel("frequency (Hz)"); ax.set_ylabel("PSD")
     ax.set_title("LFP power spectrum"); ax.legend(fontsize=8, ncol=len(bands))
-    fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
+    fig.tight_layout(); fig.savefig(path, dpi=600); plt.close(fig)
     return path
 
 
@@ -165,7 +238,7 @@ def plot_wavelet(freqs, t_sec, power, warmup, path):
     ax.set_yscale("log"); ax.set_ylabel("frequency (Hz)"); ax.set_xlabel("time (ms)")
     ax.set_title("Morlet wavelet scalogram (log10 power)")
     fig.colorbar(pm, ax=ax, label="log10 power")
-    fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
+    fig.tight_layout(); fig.savefig(path, dpi=600); plt.close(fig)
     return path
 
 
@@ -181,7 +254,7 @@ def plot_plv_matrix(labels, M, n, m, path):
             ax.text(j, i, f"{M[i, j]:.2f}", ha="center", va="center",
                     color="w" if M[i, j] < 0.6 else "k", fontsize=8)
     fig.colorbar(im, ax=ax, label="PLV")
-    fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
+    fig.tight_layout(); fig.savefig(path, dpi=600); plt.close(fig)
     return path
 
 
@@ -191,5 +264,5 @@ def plot_comodulogram(theta_f, beta_f, plv, n, m, path):
     ax.set_xlabel(r"$\beta$ sub-frequency (Hz)"); ax.set_ylabel(r"$\theta$ sub-frequency (Hz)")
     ax.set_title(f"theta-beta PLV comodulogram (ROI LFP, n:m = {n}:{m})")
     fig.colorbar(pm, ax=ax, label="PLV")
-    fig.tight_layout(); fig.savefig(path, dpi=120); plt.close(fig)
+    fig.tight_layout(); fig.savefig(path, dpi=600); plt.close(fig)
     return path
