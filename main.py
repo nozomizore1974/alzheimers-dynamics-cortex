@@ -5,7 +5,9 @@ Flow:  read data  ->  compute model parameters  ->  set up & run simulator
        ->  analyse results  ->  draw figures.
 
 Run:  python main.py [path/to/config.json]
-Outputs go to ``out/<exp>/`` (figures + a small metrics.json).
+Outputs go to ``<output_dir>/<exp>/`` (figures + a small metrics.json), where
+``output_dir`` is the config's top-level ``output_dir`` field (default "out",
+relative to the current working directory unless given as an absolute path).
 
 Re-runs are cheap: the NEST simulation and the heavy analysis transforms are
 memoised under ``out/<exp>/cache/`` (see ``cache.py``), keyed by a hash of the
@@ -58,7 +60,7 @@ def main(config_path=None, n_threads=None):
                               tau_syn_ex=syn.get("tau_syn_ex"),
                               tau_syn_in=syn.get("tau_syn_in"))
     log.info(f"[spec] -- {exp} --")
-    outpath = os.path.join(os.getcwd(), "out", exp)
+    outpath = os.path.join(os.getcwd(), cfg.get("output_dir", "out"), exp)
     os.makedirs(outpath, exist_ok=True)
     # Persist the full resolved config so the run can be re-analysed later
     # (e.g. by dynamics.load_run) with the exact parameters that produced it.
