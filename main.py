@@ -85,6 +85,16 @@ def main(config_path=None, n_threads=None):
                                                                data_path=outpath),
                           logger=log.info)
 
+    # Population GID ranges: cached as their own small object (so downstream
+    # tools can look them up without unpickling the full spike train) and
+    # written out as a human-readable txt alongside the figures.
+    pop_gid = cache.cached(os.path.join(cdir, "pop_gid.pkl"), sim_key,
+                           lambda: result["pop_gid"], logger=log.info)
+    with open(os.path.join(outpath, "pop_gid.txt"), "w") as fp:
+        fp.write(f"{'population':<10}{'g0':>10}{'g1':>10}{'n':>10}\n")
+        for name, (g0, g1, n) in pop_gid.items():
+            fp.write(f"{name:<10}{g0:>10}{g1:>10}{n:>10}\n")
+
     # ---------------- 4. analyse (each heavy product memoised) ----------------
     res_dt = cfg["simulation"]["resolution"]
     fs = 1000.0 / res_dt
