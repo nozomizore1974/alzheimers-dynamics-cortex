@@ -8,7 +8,8 @@ source (8x8):
   * W        : signed mean synaptic weight (pA), incl. PSP->PSC conversion, the
               linear indegree (scale) correction, the L4E->L2/3E doubling and
               the (load-dependent) disinhibition on I->E.
-plus per-population external Poisson weights/rates calibrated to threshold.
+plus per-population external Poisson weights/rates, either calibrated to a
+threshold-distance target (project mode) or set by fixed PD14 external indegrees.
 
 Self-contained: numpy only. The PSP->PSC conversion matches the standard
 exponential-current formula (singularity at tau_syn == tau_m handled by its
@@ -105,6 +106,23 @@ def wIE_factor(load, g_inh, wIE_floor):
     return g_inh * (1.0 - load * (1.0 - wIE_floor))
 
 
+def population_values(raw, pop_names, key, dtype=float):
+    """Return one value per population from a scalar, list, or pop-name mapping."""
+    n = len(pop_names)
+    if isinstance(raw, dict):
+        missing = [name for name in pop_names if name not in raw]
+        if missing:
+            raise KeyError(f"input.{key} missing populations: {missing}")
+        return np.array([raw[name] for name in pop_names], dtype=dtype)
+
+    arr = np.asarray(raw, dtype=dtype)
+    if arr.ndim == 0:
+        return np.full(n, arr.item(), dtype=dtype)
+    if arr.shape != (n,):
+        raise ValueError(f"input.{key} must be a scalar or length-{n} sequence")
+    return arr
+
+
 @dataclass
 class ModelParams:
     pop_names: list
@@ -118,13 +136,16 @@ class ModelParams:
     W: np.ndarray                 # (8,8) signed mean weight pA, target x source
     w_ext: np.ndarray             # (8,) external weight pA per population
     rate_ext: np.ndarray          # (8,) external Poisson rate Hz per population
+    delay_ext: np.ndarray         # (8,) external input delay ms per population
     tau_syn: np.ndarray           # (8,) per-source synaptic tau (ex for E, in for I)
     delay_e: float
     delay_i: float
     delay_rel: float
+    delay_distribution: str
     PSP_rel: float
     spec: dict = field(repr=False)
     abeta_ratio: float = 0.0
+    input_mode: str = "eta"
 
 
 def compute_model_params(mc, spec, cfg):
@@ -202,21 +223,10 @@ def compute_model_params(mc, spec, cfg):
         (spec["E_healthy"] if is_exc[j] else spec["I_healthy"])[
             "tau_syn_ex" if is_exc[j] else "tau_syn_in"] for j in range(n)])
 
-    # --- external Poisson drive, calibrated to a target mean depolarisation ---
-    # Each population receives independent excitatory Poisson input. We pick its rate
-    # so the mean voltage it drives equals  eta_ext * (V_th - E_L), i.e. eta_ext is the
-    # fraction of the rheobase distance covered by background drive alone.
-    #
-    # An exp-current synapse delivers charge w*tau_s per spike; at rate r the mean
-    # current is r*w*tau_s, and a leaky membrane (R_m = tau_m / C_m) turns that into a
-    # steady-state voltage  V = r * w * tau_s * tau_m / C_m. Setting V = eta*(V_th-E_L)
-    # and solving for r gives the expression below; the 1e3 converts kHz (tau in ms) to Hz.
-    eta = cfg["input"]["eta_ext"]
     PSP_ext = syn["PSP_ext"]                          # external EPSP amplitude (mV)
     eN, iN = spec["E_healthy"], spec["I_healthy"]
     w_ext_E, w_ext_I = cE_ex * PSP_ext, cI_ex * PSP_ext   # -> external weights (pA)
-    rE = 1e3 * (eN["V_th"] - eN["E_L"]) * eta * eN["C_m"] / (tau_m_of(eN) * eN["tau_syn_ex"] * w_ext_E)
-    rI = 1e3 * (iN["V_th"] - iN["E_L"]) * eta * iN["C_m"] / (tau_m_of(iN) * iN["tau_syn_ex"] * w_ext_I)
+
     w_ext = np.zeros(n)
     rate_ext = np.zeros(n)
     for j, name in enumerate(pop_names):
@@ -224,14 +234,47 @@ def compute_model_params(mc, spec, cfg):
             # L5E/L6E get population-specific external-weight tweaks (P&D layer corrections).
             w_ext[j] = w_ext_E * (syn["scaling5E"] if name == "L5E"
                                   else syn["scaling6E"] if name == "L6E" else 1.0)
-            rate_ext[j] = rE
         else:
             w_ext[j] = w_ext_I
-            rate_ext[j] = rI
+
+    input_cfg = cfg.get("input", {})
+    input_mode = input_cfg.get("mode", "eta")
+    if input_mode in ("eta", "eta_ext"):
+        # Project mode: calibrate the external Poisson rate to a target mean
+        # depolarisation eta_ext * (V_th - E_L).
+        #
+        # An exp-current synapse delivers charge w*tau_s per spike; at rate r the
+        # mean current is r*w*tau_s, and R_m = tau_m / C_m turns that into the
+        # steady-state voltage V = r * w * tau_s * tau_m / C_m. Solving for r gives
+        # the expression below; 1e3 converts kHz (tau in ms) to Hz.
+        eta = input_cfg["eta_ext"]
+        rE = 1e3 * (eN["V_th"] - eN["E_L"]) * eta * eN["C_m"] / (
+            tau_m_of(eN) * eN["tau_syn_ex"] * w_ext_E
+        )
+        rI = 1e3 * (iN["V_th"] - iN["E_L"]) * eta * iN["C_m"] / (
+            tau_m_of(iN) * iN["tau_syn_ex"] * w_ext_I
+        )
+        rate_ext[:] = np.where(is_exc, rE, rI)
+        delay_ext = population_values(input_cfg.get("delay", 0.0), pop_names, "delay")
+    elif input_mode == "pd14":
+        # Original PD14 background drive is represented as one independent
+        # aggregate Poisson stream per target neuron. Its rate equals the number
+        # of external excitatory afferents times their individual rate.
+        K_ext = population_values(input_cfg["K_ext"], pop_names, "K_ext")
+        bg_rate = float(input_cfg["bg_rate"])
+        rate_ext[:] = K_ext * bg_rate
+        delay_ext = population_values(
+            input_cfg.get("delay", dly["delay_e"] * dly["delay_scale"]),
+            pop_names,
+            "delay",
+        )
+    else:
+        raise ValueError(f"Unknown input.mode={input_mode!r}; expected 'eta' or 'pd14'")
 
     return ModelParams(
         pop_names=pop_names, layers=mc["layers"], is_exc=is_exc, pop_layer=mc["pop_layer"],
         N=N, conn_probs=conn_probs, n_syn=n_syn, indeg=indeg, W=W,
-        w_ext=w_ext, rate_ext=rate_ext, tau_syn=tau_syn,
+        w_ext=w_ext, rate_ext=rate_ext, delay_ext=delay_ext, tau_syn=tau_syn,
         delay_e=dly["delay_e"] * dly["delay_scale"], delay_i=dly["delay_i"] * dly["delay_scale"],
-        delay_rel=dly["delay_rel"], PSP_rel=syn["PSP_rel"], spec=spec, abeta_ratio=load)
+        delay_rel=dly["delay_rel"], delay_distribution=dly.get("distribution", "lognormal"),
+        PSP_rel=syn["PSP_rel"], spec=spec, abeta_ratio=load, input_mode=input_mode)

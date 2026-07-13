@@ -17,6 +17,20 @@ def _mu_sigma_lognorm(mean, rel_sd):
     return np.log(mean / np.sqrt(rel_sd ** 2 + 1)), np.sqrt(np.log(rel_sd ** 2 + 1))
 
 
+def _delay_distribution(mean, rel_sd, resolution, kind):
+    """NEST delay expression for recurrent connections."""
+    if kind == "lognormal":
+        mu_d, sig_d = _mu_sigma_lognorm(mean, rel_sd)
+        return nest.math.max(nest.random.lognormal(mean=mu_d, std=sig_d), resolution)
+    if kind in ("normal", "normal_clipped"):
+        return nest.math.max(
+            nest.random.normal(mean=mean, std=rel_sd * mean), resolution
+        )
+    if kind == "constant":
+        return max(float(mean), float(resolution))
+    raise ValueError(f"Unknown delay.distribution={kind!r}")
+
+
 def _make(model, n, params, extra_I_e=0.0):
     if n < 1:
         return None
@@ -106,10 +120,11 @@ def build_and_simulate(mp, cfg, logger=print, data_path=None):
             if n_syn < 1 or w == 0.0:
                 continue
             d_mean = mp.delay_e if is_exc[j] else mp.delay_i
-            mu_d, sig_d = _mu_sigma_lognorm(d_mean, mp.delay_rel)
             w_sd = abs(w) * mp.PSP_rel
             syn_spec = {"synapse_model": "static_synapse",
-                        "delay": nest.math.max(nest.random.lognormal(mean=mu_d, std=sig_d), res)}
+                        "delay": _delay_distribution(
+                            d_mean, mp.delay_rel, res, mp.delay_distribution
+                        )}
             if w >= 0:
                 syn_spec["weight"] = nest.math.max(nest.random.normal(mean=w, std=w_sd), 0.0)
             else:
@@ -123,7 +138,8 @@ def build_and_simulate(mp, cfg, logger=print, data_path=None):
         pg = nest.Create("poisson_generator", params={"rate": float(mp.rate_ext[j])})
         nest.Connect(pg, pops[name], "all_to_all",
                      syn_spec={"synapse_model": "static_synapse",
-                               "weight": float(mp.w_ext[j]), "delay": res})
+                               "weight": float(mp.w_ext[j]),
+                               "delay": max(float(mp.delay_ext[j]), float(res))})
 
     # ---------- recorder + simulate ----------
     sr = nest.Create("spike_recorder")

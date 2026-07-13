@@ -70,8 +70,9 @@ def _mean_field_inputs(mp):
     Mirrors ``theory/rates.py`` in the Adnest project: the PSC weight ``W`` (pA)
     is turned into the DC voltage gain ``J = W * tau_syn / C_m`` (mV), with the
     synaptic time constant of the *target*'s receptor (ex for an E source, in for
-    an I source). The external Poisson drive contributes one connection
-    (``K_ext = 1``) per population at rate ``rate_ext``.
+    an I source). The external Poisson drive is represented as one aggregate
+    connection (``K_ext = 1``) per population at the already-combined
+    ``rate_ext``; in PD14 mode this rate is ``K_ext * bg_rate``.
     """
     na = _neuron_arrays(mp)
     n = len(mp.pop_names)
