@@ -3,6 +3,14 @@
 #   tau_m, tau_w, tau_syn_ex, tau_syn_in, t_ref = ms ;  a = nS ;  b = pA ;  I_e = pA.
 # Each model has four sets: excitatory/inhibitory x healthy/Abeta.
 
+iaf_pd14:
+  model_E: iaf_psc_exp
+  model_I: iaf_psc_exp
+  E_healthy: {E_L: -65.0, V_reset: -65.0, V_th: -50.0, C_m: 250.0, tau_m: 10.0, t_ref: 2.0, tau_syn_ex: 0.5, tau_syn_in: 0.5, I_e: 0.0}   # Potjans-Diesmann LIF baseline
+  E_abeta:   {E_L: -65.0, V_reset: -65.0, V_th: -50.0, C_m: 250.0, tau_m: 10.0, t_ref: 2.0, tau_syn_ex: 0.5, tau_syn_in: 0.5, I_e: 0.0}   # same as healthy; PD14 has no Abeta state
+  I_healthy: {E_L: -65.0, V_reset: -65.0, V_th: -50.0, C_m: 250.0, tau_m: 10.0, t_ref: 2.0, tau_syn_ex: 0.5, tau_syn_in: 0.5, I_e: 0.0}   # Potjans-Diesmann LIF baseline
+  I_abeta:   {E_L: -65.0, V_reset: -65.0, V_th: -50.0, C_m: 250.0, tau_m: 10.0, t_ref: 2.0, tau_syn_ex: 0.5, tau_syn_in: 0.5, I_e: 0.0}   # same as healthy; PD14 has no Abeta state
+
 iaf:
   model_E: iaf_psc_exp
   model_I: iaf_psc_exp
