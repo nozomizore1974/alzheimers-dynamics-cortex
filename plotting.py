@@ -103,7 +103,7 @@ def plot_raster_total(result, spike_count, layer_spike_count, path, nmax=12000):
     layers = list(lc_counts)
     n_layers = len(layers)
     height_ratios = [4] + [1] * n_layers + [1]
-    fig, axes = plt.subplots(len(height_ratios), 1, figsize=(10, 5 + 2 * len(height_ratios)),
+    fig, axes = plt.subplots(len(height_ratios), 1, figsize=(9, 7 + 2 * len(height_ratios)),
                              sharex=True,
                              gridspec_kw={"height_ratios": height_ratios, "hspace": 0.08})
     ax = axes[0]
