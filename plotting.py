@@ -54,18 +54,26 @@ def _subset_color(pop, kind):
     return _SUBSET_COLOR.get((ei, kind), "#888888")
 
 
-def _sample(x, y, nmax=6000, rng=None):
-    if x.size > nmax:
-        rng = rng or np.random.default_rng(0)
-        idx = rng.choice(x.size, nmax, replace=False)
-        return x[idx], y[idx]
-    return x, y
+def _sample_population_neurons(result, neuron_sample_rate):
+    """Select a reproducible fraction of every population's neuron GIDs."""
+    rate = float(neuron_sample_rate)
+    if not 0.0 < rate <= 1.0:
+        raise ValueError("neuron_sample_rate must be in the interval (0, 1]")
+
+    rng = np.random.default_rng(0)
+    samples = {}
+    for name, (g0, g1, n_neurons) in result["pop_gid"].items():
+        n_sample = max(1, int(np.ceil(n_neurons * rate)))
+        samples[name] = np.sort(
+            rng.choice(np.arange(g0, g1 + 1), size=n_sample, replace=False)
+        )
+    return samples
 
 
-def _count_strip(ax, t_centres, counts, warm, bin_ms, color="0.25", alpha=1.0,
+def _count_strip(ax, t_centres, counts, start_ms, bin_ms, color="0.25", alpha=1.0,
                  hatch=None, label=None, ylabel=None):
     """One spike-count bar series (shared style for total/per-layer/per-population strips)."""
-    cm = t_centres > warm
+    cm = t_centres >= start_ms
     ax.bar(t_centres[cm], counts[cm], width=bin_ms, color=color, alpha=alpha,
           hatch=hatch, edgecolor=color if hatch else None, linewidth=0.4,
           align="center", label=label)
@@ -73,22 +81,29 @@ def _count_strip(ax, t_centres, counts, warm, bin_ms, color="0.25", alpha=1.0,
     ax.grid(True, axis="y", alpha=0.3)
 
 
-def plot_raster_total(result, spike_count, layer_spike_count, path, nmax=12000):
+def plot_raster_total(result, spike_count, layer_spike_count, path, raster_start=None,
+                      neuron_sample_rate=1.0):
     """
     Parameters
     ----------
     spike_count : (t_centres_ms, counts) from ``analysis.spike_count_series``.
     layer_spike_count : (t_centres_ms, {layer: counts}) from
         ``analysis.layer_spike_count_series``.
+    raster_start : float, optional
+        First displayed time in ms. Defaults to the simulation warmup time.
+    neuron_sample_rate : float, optional
+        Fraction of neurons sampled independently within every population.
 
     Below the raster: one bar strip per layer (own panel each), then the total
     spike-count bar strip at the bottom (shared time axis throughout).
     """
     s, t = result["senders"], result["times"]
-    warm = result["warmup"]
-    g_lo = min(v[0] for v in result["pop_gid"].values())
-    m = t > warm
+    start_ms = result["warmup"] if raster_start is None else float(raster_start)
+    samples = _sample_population_neurons(result, neuron_sample_rate)
+    sampled_gids = np.sort(np.concatenate(list(samples.values())))
+    m = (t >= start_ms) & np.isin(s, sampled_gids)
     ss, tt = s[m], t[m]
+    sampled_rows = np.searchsorted(sampled_gids, ss)
 
     e_mask = np.zeros(ss.size, dtype=bool)
     i_mask = np.zeros(ss.size, dtype=bool)
@@ -108,23 +123,24 @@ def plot_raster_total(result, spike_count, layer_spike_count, path, nmax=12000):
                              gridspec_kw={"height_ratios": height_ratios, "hspace": 0.08})
     ax = axes[0]
 
-    rng = np.random.default_rng(0)
-    nmax_ei = nmax // 2
-    te, se = _sample(tt[e_mask], (ss[e_mask] - g_lo), nmax_ei, rng)
-    ax.plot(te, se, ".", ms=1.0, color="#1f77b4", rasterized=True, label="E")
-    ti, si = _sample(tt[i_mask], (ss[i_mask] - g_lo), nmax_ei, rng)
-    ax.plot(ti, si, ".", ms=1.0, color="#d62728", rasterized=True, label="I")
+    ax.plot(tt[e_mask], sampled_rows[e_mask], ".", ms=1.0, color="#1f77b4",
+            rasterized=True, label="E")
+    ax.plot(tt[i_mask], sampled_rows[i_mask], ".", ms=1.0, color="#d62728",
+            rasterized=True, label="I")
 
     # y-axis ticks = each population centred on its (contiguous) GID band, labelled
     # by layer + E/I (e.g. 'II/III E'); faint lines mark population boundaries.
     yticks, ylabels = [], []
-    for name, (g0, g1, _n) in result["pop_gid"].items():
-        lo, hi = g0 - g_lo, g1 - g_lo
+    y0 = 0
+    for name in result["pop_gid"]:
+        n_sample = len(samples[name])
+        lo, hi = y0, y0 + n_sample - 1
         yticks.append((lo + hi) / 2); ylabels.append(_pop_label(name))
         ax.axhline(hi + 0.5, color="0.8", lw=0.5)
+        y0 += n_sample
     ax.set_yticks(yticks); ax.set_yticklabels(ylabels); ax.invert_yaxis()
     ax.set_ylabel("layer / population")
-    ax.set_xlim(warm, result["t_sim"]); ax.set_title("Total raster")
+    ax.set_xlim(start_ms, result["t_sim"]); ax.set_title("Total raster")
     ax.legend(markerscale=6, fontsize=8, loc="upper left",
               bbox_to_anchor=(1.01, 1), borderaxespad=0)
     plt.setp(ax.get_xticklabels(), visible=False)
@@ -133,19 +149,20 @@ def plot_raster_total(result, spike_count, layer_spike_count, path, nmax=12000):
     bin_ms = float(sc_t[1] - sc_t[0]) if len(sc_t) > 1 else 1.0
 
     for ax_l, lay in zip(axes[1:1 + n_layers], layers):
-        _count_strip(ax_l, lc_t, lc_counts[lay], warm, bin_ms,
+        _count_strip(ax_l, lc_t, lc_counts[lay], start_ms, bin_ms,
                     color=_LAYER_COLOR.get(lay), ylabel=lay)
         plt.setp(ax_l.get_xticklabels(), visible=False)
 
     axc = axes[-1]
-    _count_strip(axc, sc_t, sc_counts, warm, bin_ms, ylabel=f"total\n(spikes/{bin_ms:g}ms)")
+    _count_strip(axc, sc_t, sc_counts, start_ms, bin_ms, ylabel=f"total\n(spikes/{bin_ms:g}ms)")
     axc.set_xlabel("time (ms)")
 
     fig.savefig(path, dpi=600, bbox_inches="tight"); plt.close(fig)
     return path
 
 
-def plot_raster_subpop(result, mp, spike_count, health_spike_count, path, nmax_per=3000):
+def plot_raster_subpop(result, mp, spike_count, health_spike_count, path, raster_start=None,
+                       neuron_sample_rate=1.0):
     """
     Parameters
     ----------
@@ -154,27 +171,34 @@ def plot_raster_subpop(result, mp, spike_count, health_spike_count, path, nmax_p
     health_spike_count : (t_centres_ms, {"healthy": counts, "abeta": counts})
         from ``analysis.health_spike_count_series``, drawn as two further bar
         strips below that: healthy subsets, then Abeta-affected subsets.
+    raster_start : float, optional
+        First displayed time in ms. Defaults to the simulation warmup time.
+    neuron_sample_rate : float, optional
+        Fraction of neurons sampled independently within every population.
     """
     s, t = result["senders"], result["times"]
-    warm = result["warmup"]
-    rng = np.random.default_rng(0)
+    start_ms = result["warmup"] if raster_start is None else float(raster_start)
+    samples = _sample_population_neurons(result, neuron_sample_rate)
     fig, (ax, axc, axh, axa) = plt.subplots(4, 1, figsize=(11, 16), sharex=True,
                                             gridspec_kw={"height_ratios": [4, 1, 1, 1], "hspace": 0.08})
     y0, yticks, ylabels = 0, [], []
     seen = set()
     for name in mp.pop_names:
         block0 = y0
+        pop_sample = samples[name]
         for r in [x for x in result["subsets"] if x["pop"] == name]:
-            m = (s >= r["g0"]) & (s <= r["g1"]) & (t > warm)
-            tt, ss = _sample(t[m], (s[m] - r["g0"] + y0), nmax_per, rng)
+            subset_sample = pop_sample[(pop_sample >= r["g0"]) & (pop_sample <= r["g1"])]
+            m = (t >= start_ms) & np.isin(s, subset_sample)
+            tt = t[m]
+            ss = np.searchsorted(subset_sample, s[m]) + y0
             col = _subset_color(name, r["kind"])
             lbl = r["kind"] if r["kind"] not in seen else None
             seen.add(r["kind"])
             ax.plot(tt, ss, ".", ms=1.0, color=col, rasterized=True, label=lbl)
-            y0 += r["n"]
+            y0 += len(subset_sample)
         yticks.append((block0 + y0) / 2); ylabels.append(name)
     ax.set_yticks(yticks); ax.set_yticklabels(ylabels); ax.invert_yaxis()
-    ax.set_xlim(warm, result["t_sim"])
+    ax.set_xlim(start_ms, result["t_sim"])
     ax.set_title("Raster by sub-population (colour = layer; shade = healthy/Abeta subset)")
     ax.legend(markerscale=6, fontsize=8, loc="upper left",
               bbox_to_anchor=(1.01, 1), borderaxespad=0)
@@ -182,15 +206,15 @@ def plot_raster_subpop(result, mp, spike_count, health_spike_count, path, nmax_p
 
     sc_t, sc_counts = spike_count
     bin_ms = float(sc_t[1] - sc_t[0]) if len(sc_t) > 1 else 1.0
-    _count_strip(axc, sc_t, sc_counts, warm, bin_ms, ylabel=f"total\n(spikes/{bin_ms:g}ms)")
+    _count_strip(axc, sc_t, sc_counts, start_ms, bin_ms, ylabel=f"total\n(spikes/{bin_ms:g}ms)")
     plt.setp(axc.get_xticklabels(), visible=False)
 
     hc_t, hc_counts = health_spike_count
-    _count_strip(axh, hc_t, hc_counts["healthy"], warm, bin_ms, color="#1f77b4",
+    _count_strip(axh, hc_t, hc_counts["healthy"], start_ms, bin_ms, color="#1f77b4",
                 ylabel=f"healthy\n(spikes/{bin_ms:g}ms)")
     plt.setp(axh.get_xticklabels(), visible=False)
 
-    _count_strip(axa, hc_t, hc_counts["abeta"], warm, bin_ms, color="#d62728",
+    _count_strip(axa, hc_t, hc_counts["abeta"], start_ms, bin_ms, color="#d62728",
                 ylabel=f"abeta\n(spikes/{bin_ms:g}ms)")
     axa.set_xlabel("time (ms)")
 

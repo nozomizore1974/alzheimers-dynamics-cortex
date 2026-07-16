@@ -162,13 +162,17 @@ def main(config_path=None, n_threads=None):
     # ---------------- 5. plot ----------------
     figs = {
         "raster_total":   PL.plot_raster_total(result, spike_count, layer_spike_count,
-                                               os.path.join(outpath, "raster_total.png")),
+                                               os.path.join(outpath, "raster_total.png"),
+                                               raster_start=raster_start,
+                                               neuron_sample_rate=raster_neuron_sample_rate),
     }
     # A healthy-vs-Abeta breakdown is meaningless when the run has no Abeta
     # subsets at all (abeta_ratio == 0 -> simulator never creates them).
     if cfg["abeta_ratio"] > 0:
         figs["raster_subpop"] = PL.plot_raster_subpop(result, mp, spike_count, health_spike_count,
-                                                       os.path.join(outpath, "raster_subpop.png"))
+                                                       os.path.join(outpath, "raster_subpop.png"),
+                                                       raster_start=raster_start,
+                                                       neuron_sample_rate=raster_neuron_sample_rate)
     figs.update({
         "lfp":            PL.plot_lfp(lfp, warm, os.path.join(outpath, "lfp.png")),
         "psd":            PL.plot_psd(f, p, bands, os.path.join(outpath, "psd.png"), fmax=wv["fmax"]),
