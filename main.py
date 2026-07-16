@@ -200,6 +200,12 @@ def main(config_path=None, n_threads=None):
                                              os.path.join(outpath, "plv_theta_beta_matrix.png")),
         "plv_comodulogram": PL.plot_comodulogram(th_f, be_f, plv_C, nm[0], nm[1],
                                                  os.path.join(outpath, "plv_theta_beta_comodulogram.png")),
+        "neuron_rate_box": PL.plot_neuron_rate_box(neuron_rates,
+                                                   os.path.join(outpath, "neuron_rate_box.png"),
+                                                   state=state),
+        "neuron_rate_series": PL.plot_neuron_rate_series(*neuron_rate_ts,
+                                                         os.path.join(outpath, "neuron_rate_series.png"),
+                                                         start_ms=raster_start),
     })
 
     # ---------------- 5b. dynamics: structural + mean-field stability ----------------

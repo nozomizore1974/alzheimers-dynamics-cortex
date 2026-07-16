@@ -13,6 +13,10 @@ plotting.py -- figures for one column simulation.
   plot_wavelet           : Morlet scalogram (time x frequency)
   plot_plv_matrix        : layer x layer theta-beta n:m PLV heat-map
   plot_comodulogram      : fine-frequency theta-beta PLV map
+  plot_neuron_rate_box   : per-neuron time-averaged firing-rate distribution
+                           (box plot), grouped by population and by layer
+  plot_neuron_rate_series: population/layer mean single-neuron firing rate as a
+                           time-domain curve
 
 Self-contained: matplotlib + numpy. Uses a non-interactive backend so it runs
 headless. Labels are ASCII so no CJK font is needed.
@@ -289,4 +293,100 @@ def plot_comodulogram(theta_f, beta_f, plv, n, m, path):
     ax.set_title(f"theta-beta PLV comodulogram (ROI LFP, n:m = {n}:{m})")
     fig.colorbar(pm, ax=ax, label="PLV")
     fig.tight_layout(); fig.savefig(path, dpi=600); plt.close(fig)
+    return path
+
+
+def _rate_boxplot(ax, labels, data, colors, title):
+    """Shared box-plot styling for a per-neuron firing-rate distribution panel."""
+    bp = ax.boxplot(data, showfliers=False, patch_artist=True, whis=(5, 95))
+    for patch, col in zip(bp["boxes"], colors):
+        patch.set_facecolor(col); patch.set_alpha(0.7)
+    for med in bp["medians"]:
+        med.set_color("k")
+    means = [float(d.mean()) if len(d) else 0.0 for d in data]
+    ax.plot(range(1, len(data) + 1), means, "D", ms=4, color="k", label="mean")
+    ax.set_xticks(range(1, len(labels) + 1))
+    ax.set_xticklabels(labels, rotation=45, ha="right")
+    ax.set_ylabel("firing rate (Hz)")
+    ax.set_title(title)
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.legend(fontsize=8, loc="upper right")
+
+
+def plot_neuron_rate_box(neuron_rates, path, state=None):
+    """
+    Box plot of every neuron's full-window time-averaged firing rate, one box
+    per population (left) and per layer (right). Whiskers span the 5-95th
+    percentiles, black diamond = mean. ``state`` (optional dict from
+    ``analysis.classify_activity_state``) is annotated in the figure title.
+
+    Parameters
+    ----------
+    neuron_rates : dict from ``analysis.neuron_firing_rates`` (per_pop, per_layer).
+    """
+    per_pop, per_layer = neuron_rates["per_pop"], neuron_rates["per_layer"]
+    pop_names = list(per_pop)
+    layer_names = list(per_layer)
+
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(13, 5.2),
+        gridspec_kw={"width_ratios": [max(len(pop_names), 1), max(len(layer_names), 1)]})
+
+    _rate_boxplot(ax1, [_pop_label(n) for n in pop_names],
+                  [per_pop[n] for n in pop_names],
+                  [_LAYER_COLOR.get(n[:-1], "#888888") for n in pop_names],
+                  "Per-neuron time-averaged rate by population")
+    _rate_boxplot(ax2, layer_names,
+                  [per_layer[l] for l in layer_names],
+                  [_LAYER_COLOR.get(l, "#888888") for l in layer_names],
+                  "by layer")
+
+    if state:
+        tag = f"state: {state['state']} ({state['synchrony']} / {state['regularity']})"
+        fig.suptitle(tag, fontsize=11, y=1.02)
+    fig.tight_layout(); fig.savefig(path, dpi=600, bbox_inches="tight"); plt.close(fig)
+    return path
+
+
+def plot_neuron_rate_series(centres, pop_rate, layer_rate, total_rate, path,
+                            start_ms=0.0):
+    """
+    Time-domain firing-rate curve: population-mean single-neuron rate (Hz) per
+    time bin. Top panel = the 8 populations (E solid, I dashed, coloured by
+    layer); bottom = per-layer means plus the whole-column total.
+
+    Parameters
+    ----------
+    centres, pop_rate, layer_rate, total_rate : from ``analysis.neuron_rate_series``.
+    start_ms : float
+        First displayed time in ms (mirrors the rasters' ``raster_start``).
+    """
+    centres = np.asarray(centres)
+    cm = centres >= start_ms
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 8), sharex=True,
+                                   gridspec_kw={"hspace": 0.12})
+
+    for name, r in pop_rate.items():
+        ax1.plot(centres[cm], np.asarray(r)[cm], lw=0.7,
+                 color=_LAYER_COLOR.get(name[:-1], "#888888"),
+                 ls="-" if name.endswith("E") else "--", label=_pop_label(name))
+    ax1.set_ylabel("pop mean rate (Hz)")
+    ax1.set_title("Population mean single-neuron firing rate over time")
+    ax1.legend(ncol=1, fontsize=7, loc="upper left",
+               bbox_to_anchor=(1.01, 1), borderaxespad=0)
+    ax1.grid(True, alpha=0.3)
+    plt.setp(ax1.get_xticklabels(), visible=False)
+
+    for lay, r in layer_rate.items():
+        ax2.plot(centres[cm], np.asarray(r)[cm], lw=0.9,
+                 color=_LAYER_COLOR.get(lay, "#888888"), label=lay)
+    ax2.plot(centres[cm], np.asarray(total_rate)[cm], lw=1.1, color="k", label="total")
+    ax2.set_ylabel("layer mean rate (Hz)"); ax2.set_xlabel("time (ms)")
+    ax2.legend(ncol=1, fontsize=8, loc="upper left",
+               bbox_to_anchor=(1.01, 1), borderaxespad=0)
+    ax2.grid(True, alpha=0.3)
+    if centres.size:
+        ax2.set_xlim(start_ms, centres[-1])
+
+    fig.savefig(path, dpi=600, bbox_inches="tight"); plt.close(fig)
     return path
