@@ -103,6 +103,16 @@ def main(config_path=None, n_threads=None):
     fs = 1000.0 / res_dt
     warm = cfg["simulation"]["warmup"]
     ana = cfg["analysis"]
+    raster_start = float(ana.get("raster_start", warm))
+    if not 0.0 <= raster_start < cfg["simulation"]["t_sim"]:
+        raise ValueError(
+            "analysis.raster_start must be at least 0 and smaller than simulation.t_sim"
+        )
+    raster_neuron_sample_rate = float(ana.get("raster_neuron_sample_rate", 1.0))
+    if not 0.0 < raster_neuron_sample_rate <= 1.0:
+        raise ValueError(
+            "analysis.raster_neuron_sample_rate must be in the interval (0, 1]"
+        )
 
     def memo(name, compute, *key_parts):
         """Compute-or-load one analysis product, keyed by sim + its params."""
