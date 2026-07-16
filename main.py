@@ -154,10 +154,29 @@ def main(config_path=None, n_threads=None):
             nm[0], nm[1], tmin=warm, t=lfp["t"]),
         plv["theta_subfreqs"], plv["beta_subfreqs"], plv["sub_bw"], nm, warm)
 
+    # Neuron-level firing rates: full-window per-neuron distribution + a binned
+    # population/layer mean-rate time course.
+    neuron_rates = memo("neuron_rates", lambda: AN.neuron_firing_rates(result, mp))
+    nr_bin = ana.get("neuron_rate_bin", 5.0)
+    neuron_rate_ts = memo("neuron_rate_series",
+        lambda: AN.neuron_rate_series(result, mp, nr_bin), nr_bin)
+
+    # Activity-state classification: ISI-CV (regularity) x Golomb chi (synchrony)
+    # -> one of AI / AR / SI / SR. Thresholds default here, overridable in config.
+    cv = memo("isi_cv", lambda: AN.isi_cv(result, mp))
+    chi_bin = ana.get("synchrony_bin", 3.0)
+    chi = memo("synchrony_chi", lambda: AN.synchrony_chi(result, mp, chi_bin), chi_bin)
+    state = AN.classify_activity_state(
+        cv["mean"], chi["overall"],
+        cv_thresh=ana.get("state_cv_thresh", 0.5),
+        chi_thresh=ana.get("state_chi_thresh", 0.15))
+
     log.info("[rates] " + " ".join(f"{k}:{v:.1f}" for k, v in pop_rates.items()))
     log.info("[bands] " + " ".join(f"{b}:{bp[b]:.2f}" for b in bands))
     log.info(f"[plv] theta-beta {nm[0]}:{nm[1]} diag(mean)={np.mean(np.diag(plv_M)):.3f} "
              f"comodulogram max={plv_C.max():.3f}")
+    log.info(f"[state] {state['state']} ({state['synchrony']}/{state['regularity']}) "
+             f"mean_CV_ISI={cv['mean']:.2f} chi={chi['overall']:.3f}")
 
     # ---------------- 5. plot ----------------
     figs = {
@@ -204,6 +223,13 @@ def main(config_path=None, n_threads=None):
         "neurons": int(mp.N.sum()), "internal_synapses": int(mp.n_syn.sum()),
         "pop_rates": pop_rates, "band_powers": bp,
         "plv_nm": nm, "plv_diag_mean": float(np.mean(np.diag(plv_M))),
+        "activity_state": state,
+        "synchrony_chi": {"overall": chi["overall"], "bin_ms": chi["bin_ms"],
+                          "per_pop": chi["per_pop"]},
+        "isi_cv_per_pop": {k: (float(v.mean()) if v.size else None)
+                           for k, v in cv["per_pop"].items()},
+        "neuron_rate_median_per_pop": {k: float(np.median(v)) if v.size else None
+                                       for k, v in neuron_rates["per_pop"].items()},
         "dynamics": dyn_metrics,
         "figures": {k: os.path.relpath(v, HERE) for k, v in figs.items()},
     }

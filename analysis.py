@@ -289,3 +289,199 @@ def theta_beta_comodulogram(sig, fs, theta_freqs, beta_freqs, bw, n, m, tmin=0.0
         for j, fb in enumerate(beta_freqs):
             out[i, j] = _nm_plv(ph_t[ft], ph_b[fb], n, m)
     return np.asarray(theta_freqs, float), np.asarray(beta_freqs, float), out
+
+
+# --------------------------------------------------------------------------- #
+#  Neuron-level firing rates: distribution + time course                       #
+# --------------------------------------------------------------------------- #
+def _pop_layer_groups(result, mp):
+    """{layer: [pop_name, ...]} restricted to populations present in the result."""
+    groups = {lay: [] for lay in mp.layers}
+    for name, pl in zip(mp.pop_names, mp.pop_layer):
+        if name in result["pop_gid"]:
+            groups[pl].append(name)
+    return {lay: names for lay, names in groups.items() if names}
+
+
+def neuron_firing_rates(result, mp):
+    """
+    Time-averaged firing rate (Hz) of every single neuron over the post-warmup
+    window -- silent neurons contribute an explicit 0, so each population array
+    has length ``n`` (the full population). Feeds the per-neuron rate box plot.
+
+    Returns dict with:
+      per_pop   : {pop_name: rates[n]}
+      per_layer : {layer: rates[sum n over that layer's pops]}
+      all       : rates over every recorded neuron
+    """
+    s, t = result["senders"], result["times"]
+    warm, tsim = result["warmup"], result["t_sim"]
+    dur = (tsim - warm) / 1000.0
+    post = t > warm
+    s_post = s[post]
+
+    per_pop = {}
+    for name, (g0, g1, n) in result["pop_gid"].items():
+        m = (s_post >= g0) & (s_post <= g1)
+        counts = np.bincount(s_post[m] - g0, minlength=n)[:n]
+        per_pop[name] = counts.astype(float) / dur
+
+    groups = _pop_layer_groups(result, mp)
+    per_layer = {lay: np.concatenate([per_pop[name] for name in names])
+                 for lay, names in groups.items()}
+    all_rates = np.concatenate([per_pop[name] for name in result["pop_gid"]])
+    return dict(per_pop=per_pop, per_layer=per_layer, all=all_rates)
+
+
+def neuron_rate_series(result, mp, bin_ms=5.0):
+    """
+    Population-mean single-neuron firing rate (Hz) per time bin, over the full
+    ``t_sim`` span -- i.e. the per-population/-layer spike count divided by
+    (n_neurons x bin width). Feeds the time-domain firing-rate curve plot.
+
+    Returns (t_centres (ms), {pop: rate}, {layer: rate}, total_rate).
+    """
+    centres, pop_counts = population_spike_count_series(result, bin_ms)
+    bin_s = bin_ms / 1000.0
+    pop_rate = {name: pop_counts[name].astype(float) / (n * bin_s)
+                for name, (_g0, _g1, n) in result["pop_gid"].items()}
+
+    groups = _pop_layer_groups(result, mp)
+    layer_rate = {}
+    for lay, names in groups.items():
+        tot = sum(pop_counts[name] for name in names)
+        n_tot = sum(result["pop_gid"][name][2] for name in names)
+        layer_rate[lay] = tot.astype(float) / (n_tot * bin_s)
+
+    tot_counts = sum(pop_counts.values())
+    n_all = sum(v[2] for v in result["pop_gid"].values())
+    total_rate = tot_counts.astype(float) / (n_all * bin_s)
+    return centres, pop_rate, layer_rate, total_rate
+
+
+# --------------------------------------------------------------------------- #
+#  Activity-state classification: synchronous/asynchronous x regular/irregular #
+# --------------------------------------------------------------------------- #
+def isi_cv(result, mp, min_spikes=3):
+    """
+    Per-neuron ISI coefficient of variation (std/mean of inter-spike intervals)
+    over the post-warmup window. CV ~ 0 is clock-like (regular), CV ~ 1 is
+    Poisson-like (irregular). Only neurons with >= ``min_spikes`` spikes (>= 2
+    ISIs) contribute.
+
+    Returns dict with:
+      per_pop   : {pop_name: cv[...]}   (only qualifying neurons)
+      per_layer : {layer: cv[...]}
+      all       : cv over every qualifying neuron
+      mean      : mean CV over all qualifying neurons (nan if none)
+    """
+    s, t = result["senders"], result["times"]
+    warm = result["warmup"]
+    post = t > warm
+    s_p, t_p = s[post], t[post]
+    order = np.lexsort((t_p, s_p))            # sort by sender, then time
+    s_s, t_s = s_p[order], t_p[order]
+
+    gid_cv = {}
+    if s_s.size:
+        uniq, starts = np.unique(s_s, return_index=True)
+        bounds = np.append(starts, s_s.size)
+        for k, gid in enumerate(uniq):
+            seg = t_s[bounds[k]:bounds[k + 1]]
+            if seg.size >= min_spikes:
+                isi = np.diff(seg)
+                mu = isi.mean()
+                if mu > 0:
+                    gid_cv[int(gid)] = isi.std() / mu
+
+    per_pop = {}
+    for name, (g0, g1, _n) in result["pop_gid"].items():
+        vals = [gid_cv[g] for g in range(g0, g1 + 1) if g in gid_cv]
+        per_pop[name] = np.asarray(vals, dtype=float)
+
+    groups = _pop_layer_groups(result, mp)
+    per_layer = {lay: np.concatenate([per_pop[name] for name in names]) if
+                 any(per_pop[name].size for name in names) else np.array([])
+                 for lay, names in groups.items()}
+    all_cv = np.concatenate([per_pop[name] for name in result["pop_gid"]]) \
+        if gid_cv else np.array([])
+    mean_cv = float(all_cv.mean()) if all_cv.size else float("nan")
+    return dict(per_pop=per_pop, per_layer=per_layer, all=all_cv, mean=mean_cv)
+
+
+def synchrony_chi(result, mp, bin_ms=3.0, max_neurons_per_pop=500, seed=0):
+    """
+    Golomb-Rinzel population synchrony index chi in [0, 1] (0 = asynchronous,
+    1 = fully synchronous), computed on binned post-warmup spike trains:
+
+        chi = sqrt( Var_t(<s>(t)) / mean_i Var_t(s_i(t)) )
+
+    where s_i(t) is neuron i's binned spike count and <s>(t) the population
+    average. Each population is sub-sampled to <= ``max_neurons_per_pop`` neurons
+    to keep the neuron x bin matrix small; ``overall`` pools those samples.
+
+    Returns dict: per_pop {name: chi}, overall (chi), bin_ms.
+    """
+    warm, tsim = result["warmup"], result["t_sim"]
+    n_bins = max(1, int(round((tsim - warm) / bin_ms)))
+    edges = np.linspace(warm, tsim, n_bins + 1)
+    s, t = result["senders"], result["times"]
+    post = t > warm
+    s_p, t_p = s[post], t[post]
+    rng = np.random.default_rng(seed)
+
+    def chi_for(gids):
+        gids = np.sort(np.asarray(gids))
+        if gids.size == 0:
+            return 0.0
+        idx = np.searchsorted(gids, s_p)
+        in_range = idx < gids.size
+        idx_c = np.where(in_range, idx, 0)
+        valid = in_range & (gids[idx_c] == s_p)
+        neuron_idx = idx[valid]
+        bin_idx = np.clip(np.searchsorted(edges, t_p[valid], side="right") - 1,
+                          0, n_bins - 1)
+        S = np.zeros((gids.size, n_bins))
+        np.add.at(S, (neuron_idx, bin_idx), 1.0)
+        var_ind = S.var(axis=1).mean()
+        if var_ind <= 0:
+            return 0.0
+        return float(np.sqrt(max(S.mean(axis=0).var(), 0.0) / var_ind))
+
+    per_pop, pooled = {}, []
+    for name, (g0, g1, n) in result["pop_gid"].items():
+        pool = np.arange(g0, g1 + 1)
+        if pool.size > max_neurons_per_pop:
+            pool = rng.choice(pool, max_neurons_per_pop, replace=False)
+        per_pop[name] = chi_for(pool)
+        pooled.append(pool)
+    overall = chi_for(np.concatenate(pooled)) if pooled else 0.0
+    return dict(per_pop=per_pop, overall=overall, bin_ms=float(bin_ms))
+
+
+def classify_activity_state(mean_cv, chi, cv_thresh=0.5, chi_thresh=0.15):
+    """
+    Combine ISI-CV (regularity axis) and chi (synchrony axis) into one of the
+    four Brunel network states:
+
+        SR  synchronous-regular      SI  synchronous-irregular
+        AR  asynchronous-regular     AI  asynchronous-irregular
+
+    ``mean_cv < cv_thresh`` -> regular; ``chi >= chi_thresh`` -> synchronous.
+    Thresholds are heuristic; the raw ``mean_cv``/``chi`` are returned so a
+    borderline call can be re-judged. ``mean_cv`` may be nan (too few spikes),
+    in which case regularity is reported as ``unknown``.
+    """
+    if np.isnan(mean_cv):
+        regularity, reg_code = "unknown", "?"
+    elif mean_cv < cv_thresh:
+        regularity, reg_code = "regular", "R"
+    else:
+        regularity, reg_code = "irregular", "I"
+    synchronous = chi >= chi_thresh
+    synchrony = "synchronous" if synchronous else "asynchronous"
+    state = ("S" if synchronous else "A") + reg_code
+    return dict(state=state, synchrony=synchrony, regularity=regularity,
+                mean_cv=(None if np.isnan(mean_cv) else float(mean_cv)),
+                chi=float(chi), cv_thresh=float(cv_thresh),
+                chi_thresh=float(chi_thresh))
