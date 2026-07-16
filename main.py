@@ -26,15 +26,16 @@ import argparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import analysis as AN
+import model_params as MP
+import plotting as PL
+import logger as _logger
+import cache
+import data_loader
+import simulator
+
 import numpy as np
 
-import cache
-import logger as _logger
-import data_loader
-import model_params as MP
-import simulator
-import analysis as AN
-import plotting as PL
 
 def main(config_path=None, n_threads=None):
     """
